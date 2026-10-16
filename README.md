@@ -135,7 +135,7 @@ To back it up, copy `chess.db` while the app is stopped, or run `sqlite3 chess.d
 - a tag like `v1.2.0` → `1.2.0` and `1.2`
 - pull requests are built but not pushed
 
-The package is private the first time it's published. Make it public under the repository's *Packages* settings, or `docker login ghcr.io` on the NAS before pulling.
+The package follows the repository's visibility: for a public repository anyone can pull it, for a private one run `docker login ghcr.io` on the NAS first.
 
 ## Files
 
