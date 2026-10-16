@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+/.svelte-kit/
+/build/
+
+# Game data: the SQLite database and anything else the app writes at runtime
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Personal Claude Code settings (permissions, MCP approvals)
+.claude/settings.local.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+
+# Vite
+vite.config.ts.timestamp-*

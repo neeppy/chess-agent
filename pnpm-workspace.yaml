@@ -1,0 +1,4 @@
+allowBuilds:
+  esbuild: true
+  # ships prebuilt binaries for linux/macOS/windows (x64 + arm64); no compile needed
+  better-sqlite3: false

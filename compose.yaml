@@ -1,0 +1,19 @@
+services:
+  chess:
+    image: ghcr.io/neeppy/chess-agent:latest
+    container_name: chess-agent
+    restart: unless-stopped
+    ports:
+      - "5199:5199"
+    volumes:
+      # SQLite database (chess.db). Any host folder works; it is chowned to PUID:PGID on start.
+      - ./data:/data
+    environment:
+      # Run as this user/group, e.g. the owner of the data folder on your NAS (`id` shows yours).
+      PUID: 1000
+      PGID: 1000
+      # Time zone for game ids and PGN dates.
+      TZ: UTC
+      # Only needed if agents reach the app through a reverse proxy or another address than
+      # the one they connect to /mcp with:
+      # CHESS_PUBLIC_URL: https://chess.example.com
