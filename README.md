@@ -152,4 +152,4 @@ Dockerfile, compose.yaml, docker/entrypoint.sh
 
 ## Credits
 
-Piece set "cburnett" by Colin M.L. Burnett (CC BY-SA 3.0 / GPLv2+), via chessground (GPL-3.0). chess.js is BSD-2.
+Piece set "staunty" by sadsnake1 ([CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)), from [lichess.org](https://github.com/lichess-org/lila). Board by chessground (GPL-3.0). chess.js is BSD-2.

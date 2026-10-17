@@ -242,6 +242,13 @@
 	const ctlBtn =
 		'rounded-md bg-stone-700 px-2.5 py-1 text-stone-100 hover:bg-stone-600 disabled:cursor-not-allowed disabled:opacity-40';
 
+	// Rulers around the board, in the order the viewer sees them. The last move's destination
+	// square is highlighted on both, so "Nf6" reads straight off the edges.
+	const rankLabels = $derived(orientation === 'white' ? [...'87654321'] : [...'12345678']);
+	const fileLabels = $derived(orientation === 'white' ? [...'abcdefgh'] : [...'hgfedcba']);
+	const marked = $derived(shownMove?.to ?? null);
+	const rulerClass = (on: boolean) => (on ? 'text-amber-300' : 'text-[#f0d9b5]/80');
+
 	const top: Color = $derived(other(orientation));
 	const playerName = (c: Color) => (c === 'white' ? game.white : game.black);
 	const isAgent = (c: Color) => c === game.agentColor;
@@ -291,27 +298,50 @@
 				badge={isAgent(top) ? agentBadge : null}
 				label={isAgent(top) ? '' : '(you)'}
 			/>
-			<div class="relative aspect-square w-full">
-				<Board
-					bind:this={board}
-					fen={shownFen}
-					{orientation}
-					turnColor={shownTurn}
-					lastMove={shownMove ? [shownMove.from, shownMove.to] : null}
-					check={shownCheck}
-					movableColor={canMove ? game.humanColor : undefined}
-					dests={canMove ? dests : new Map()}
-					onmove={onBoardMove}
-				/>
-				{#if promotion}
-					<PromotionPicker color={game.humanColor} onpick={pickPromotion} oncancel={cancelPromotion} />
-				{/if}
-				{#if !live}
-					<button
-						class="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-600 px-4 py-1.5 text-sm font-semibold shadow-lg hover:bg-amber-500"
-						onclick={() => go(game.ply)}>Viewing move {Math.ceil(shownPly / 2)} — back to live</button
-					>
-				{/if}
+			<!-- The board sits in a frame that carries the rank and file labels. -->
+			<div
+				class="grid grid-cols-[1.5rem_minmax(0,1fr)_1.5rem] grid-rows-[1.5rem_auto_1.5rem] rounded-md bg-[#5a4130] shadow-lg ring-1 ring-black/40"
+			>
+				<div class="col-span-3"></div>
+				<div class="flex flex-col" aria-hidden="true">
+					{#each rankLabels as rank (rank)}
+						<span class="flex flex-1 items-center justify-center text-sm font-semibold {rulerClass(rank === marked?.[1])}"
+							>{rank}</span
+						>
+					{/each}
+				</div>
+				<div class="relative aspect-square">
+					<Board
+						bind:this={board}
+						fen={shownFen}
+						{orientation}
+						turnColor={shownTurn}
+						lastMove={shownMove ? [shownMove.from, shownMove.to] : null}
+						check={shownCheck}
+						movableColor={canMove ? game.humanColor : undefined}
+						dests={canMove ? dests : new Map()}
+						onmove={onBoardMove}
+					/>
+					{#if promotion}
+						<PromotionPicker color={game.humanColor} onpick={pickPromotion} oncancel={cancelPromotion} />
+					{/if}
+					{#if !live}
+						<button
+							class="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-600 px-4 py-1.5 text-sm font-semibold shadow-lg hover:bg-amber-500"
+							onclick={() => go(game.ply)}>Viewing move {Math.ceil(shownPly / 2)} — back to live</button
+						>
+					{/if}
+				</div>
+				<div></div>
+				<div></div>
+				<div class="flex" aria-hidden="true">
+					{#each fileLabels as file (file)}
+						<span class="flex flex-1 items-center justify-center text-sm font-semibold {rulerClass(file === marked?.[0])}"
+							>{file}</span
+						>
+					{/each}
+				</div>
+				<div></div>
 			</div>
 			<PlayerBar
 				name={playerName(orientation)}

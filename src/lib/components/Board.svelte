@@ -5,7 +5,7 @@
 	import type { Key } from '@lichess-org/chessground/types';
 	import '@lichess-org/chessground/assets/chessground.base.css';
 	import '@lichess-org/chessground/assets/chessground.brown.css';
-	import '@lichess-org/chessground/assets/chessground.cburnett.css';
+	import '#lib/pieces/pieces.css';
 	import type { Color } from '#lib/types.ts';
 
 	interface Props {
@@ -53,7 +53,8 @@
 	onMount(() => {
 		cg = Chessground(el, {
 			...config(),
-			coordinates: true,
+			// The page draws rulers around the board instead.
+			coordinates: false,
 			animation: { enabled: true, duration: 200 },
 			highlight: { lastMove: true, check: true },
 			premovable: { enabled: false },
@@ -84,10 +85,5 @@
 	.board {
 		width: 100%;
 		height: 100%;
-	}
-	/* Coordinates: smaller and tucked into the squares like on lichess. */
-	.board :global(coords) {
-		font-size: clamp(8px, 1.6vmin, 12px);
-		font-weight: 700;
 	}
 </style>
