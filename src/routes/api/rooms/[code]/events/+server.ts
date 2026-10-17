@@ -1,14 +1,13 @@
-import { game } from '#lib/server/game.ts';
+import { roomOr404 } from '#lib/server/http.ts';
 import type { RequestHandler } from './$types';
 
 /**
- * Server-Sent Events: emits `state` (the full GameView) on connect and after every change.
- * Agents should connect with `?client=agent&name=<name>` so the UI can show that an agent is
- * connected.
+ * Server-Sent Events for a room: emits `state` (the full GameView) on connect and after every
+ * change. Seated players pass `?as=<playerId>` so the others see them as present.
  */
-export const GET: RequestHandler = ({ url, request }) => {
-	const isAgent = url.searchParams.get('client') === 'agent';
-	const name = url.searchParams.get('name')?.slice(0, 40) || null;
+export const GET: RequestHandler = ({ params, url, request }) => {
+	const room = roomOr404(params.code);
+	const as = Number(url.searchParams.get('as'));
 	const encoder = new TextEncoder();
 	let cleanup = () => {};
 
@@ -23,10 +22,10 @@ export const GET: RequestHandler = ({ url, request }) => {
 					cleanup();
 				}
 			};
-			const sendState = () => write(`event: state\ndata: ${JSON.stringify(game.view())}\n\n`);
+			const sendState = () => write(`event: state\ndata: ${JSON.stringify(room.view())}\n\n`);
 
-			const unsubscribe = game.subscribe(sendState);
-			const disconnect = isAgent ? game.connectAgent(name) : () => {};
+			const unsubscribe = room.subscribe(sendState);
+			const disconnect = room.connect(Number.isInteger(as) && as > 0 ? as : null);
 			const ping = setInterval(() => write(': ping\n\n'), 15_000);
 
 			cleanup = () => {

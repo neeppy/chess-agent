@@ -1,12 +1,11 @@
-import { json } from '@sveltejs/kit';
-import type { Side } from '#lib/types.ts';
-import { GameError } from './game';
+import { error, json } from '@sveltejs/kit';
+import { GameError, isGameError, rooms, type Room } from './rooms.ts';
 
 export async function respond(fn: () => unknown | Promise<unknown>): Promise<Response> {
 	try {
 		return json(await fn());
 	} catch (e) {
-		if (e instanceof GameError) return json({ error: e.message }, { status: e.status });
+		if (isGameError(e)) return json({ error: e.message }, { status: e.status });
 		throw e;
 	}
 }
@@ -31,7 +30,17 @@ export function publicUrl(request: Request): string {
 	return `${first('x-forwarded-proto') || 'http'}://${first('x-forwarded-host') || h.get('host') || 'localhost:5199'}`;
 }
 
-export function asSide(value: unknown): Side {
-	if (value === 'human' || value === 'agent') return value;
-	throw new GameError('"as" must be "human" or "agent".');
+/** The room for a route's `code` param, or a 404. */
+export function roomOr404(code: string): Room {
+	const room = rooms.get(code);
+	if (!room) error(404, 'No such room');
+	return room;
+}
+
+/** The player a seat key belongs to, which must be in `room`. */
+export function seatIn(room: Room, key: unknown) {
+	const found = rooms.byKey(key);
+	if (!found || found.room !== room) throw new GameError('That seat key does not belong to this room.', 403);
+	room.noteActivity(found.player);
+	return found.player;
 }

@@ -2,96 +2,117 @@
 
 Base URL: `http://localhost:5199`. All bodies are JSON: send `content-type: application/json` (form-encoded POSTs are rejected by SvelteKit's CSRF protection). Errors come back as `{ "error": "..." }` with a 4xx status.
 
-There is one *current* game. The human plays from the web UI; an agent plays with `"as": "agent"`.
-The same operations are available as MCP tools at `POST /mcp` (Streamable HTTP, stateless); everything below can also be done with `curl`.
+Games are played in **rooms** (`/r/<code>`, 6 characters `a-z0-9`). Each room has a White and a Black seat. Taking a seat returns a secret **seat key**: every action for that seat passes it as `seat`. The same operations are available as MCP tools at `POST /mcp` (Streamable HTTP, stateless).
 
 ## Playing as an agent
 
 ```sh
-# 1. Look at the game (marks unread chat messages as read)
-curl localhost:5199/api/agent/state
+# 1. Take a free seat (or create a room first: POST /api/rooms {"join": {...}})
+curl -X POST localhost:5199/api/rooms/abc123/join -H 'content-type: application/json' \
+  -d '{"kind":"agent","name":"My bot"}'
+# -> { "key": "<seat key>", "playerId": 7, "color": "black", "game": {...} }
 
-# 2. Move (SAN or UCI), optionally with a chat message
-curl -X POST localhost:5199/api/game/move -H 'content-type: application/json' -d '{"as":"agent","move":"Nf6","message":"Your move!"}'
+# 2. Look at the game from your seat (marks unread chat messages as read)
+curl localhost:5199/api/seat/<seat key>/state
 
-# 3a. Wait for the reply as a background command (prints plain text when something happens)
-curl -s http://localhost:5199/api/agent/next
+# 3. Move (SAN or UCI), optionally with a chat message
+curl -X POST localhost:5199/api/rooms/abc123/move -H 'content-type: application/json' \
+  -d '{"seat":"<seat key>","move":"Nf6","message":"Your move!"}'
 
-# 3b. ...or block on the JSON long-poll (timeout in seconds)
-curl 'localhost:5199/api/agent/wait?timeout=600'
+# 4a. Wait for your turn as a background command (prints plain text when something happens)
+curl -s localhost:5199/api/seat/<seat key>/next
+
+# 4b. ...or block on the JSON long-poll (timeout in seconds)
+curl 'localhost:5199/api/seat/<seat key>/wait?timeout=600'
 ```
 
-Prefer 3a if your harness can run commands in the background and wake you when they finish (Claude Code can): you end your turn, so the human can still talk to you in your own conversation while you wait. Only one `/api/agent/next` request is kept: starting a new one ends the previous one with "replaced by a newer one". A move you relay for the human (`"enteredBy": "agent"`) doesn't wake a pending waiter, since you already know about it.
+Prefer 4a if your harness can run commands in the background and wake you when they finish (Claude Code can): you end your turn, so the human can still talk to you in your own conversation while you wait. Each seat keeps one `/next` request: starting a new one ends the previous one with "replaced by a newer one".
 
-Both return as soon as **any** of these is true, otherwise they time out (`{ "ready": false }`, or a "no move yet" line from `/next`):
+Both return as soon as **any** of these is true, otherwise they time out (`{ "ready": false }`, or a "nothing new yet" line from `/next`):
 
-| reason      | when                                                    |
-| ----------- | ------------------------------------------------------- |
-| `your_turn` | the game is active and it is the agent's turn           |
-| `game_over` | the game ended and the agent hasn't been told yet       |
-| `messages`  | the human wrote in the web UI chat and the agent hasn't seen it yet |
+| reason      | when                                                         |
+| ----------- | ------------------------------------------------------------ |
+| `your_turn` | both seats are taken and it is your seat's turn              |
+| `game_over` | the game ended and you haven't been told yet                 |
+| `messages`  | someone wrote in the room chat and you haven't seen it yet   |
 
-They return immediately if it is already the agent's turn, so calling them in a loop is safe.
+They return immediately if it is already your turn, so calling them in a loop is safe.
 
-`/api/agent/wait` responds with an `AgentEvent`:
+`/wait` and `/state` respond with a `SeatEvent`:
 
 ```jsonc
 {
 	"ready": true,
 	"reasons": ["your_turn"],
-	"messages": [{ "id": 3, "from": "human", "text": "good luck", "ply": 0, "at": "..." }],
+	"color": "black",             // your seat in the current game
+	"messages": [{ "id": 3, "from": "white", "name": "Cosmin", "text": "good luck", "ply": 0, "at": "..." }],
 	"game": { /* GameView, see below */ }
 }
 ```
 
 ## Endpoints
 
-| Method | Path                                  | Body / query                                                       | Notes                                                                                           |
-| ------ | ------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| GET    | `/api/game`                           |                                                                    | Current `GameView`                                                                              |
-| GET    | `/api/agent/state`                    |                                                                    | `AgentEvent`; marks unread messages as read                                                     |
-| GET    | `/api/agent/next`                     | `?timeout=<seconds>` (default 8h, max 24h)                         | Background waiter: same triggers as `wait`, answers in plain text describing what happened and the position |
-| GET    | `/api/agent/wait`                     | `?timeout=<seconds>` (default 240, max 3600, `0` = check only)     | Long-poll, see above. Keep it under 300s if your HTTP client has a response timeout             |
-| POST   | `/api/game/move`                      | `{ "as": "agent", "move": "e4" \| "e2e4" \| "e8=Q", "message"? }` | `409` if not your turn, `422` if illegal (lists the legal moves) or ambiguous (lists the candidates). To relay a move the human told you in chat, send `"as": "human", "enteredBy": "agent"` |
-| POST   | `/api/game/draw`                      | `{ "as": "agent", "action": "offer" \| "accept" \| "decline" }`    | An offer stays open until the opponent accepts/declines or makes a move                         |
-| POST   | `/api/game/resign`                    | `{ "as": "agent" }`                                                |                                                                                                 |
-| POST   | `/api/game/message`                   | `{ "as": "agent", "text": "..." }`                                 | Chat, shown in the UI                                                                           |
-| POST   | `/api/game/new`                       | `{ "humanColor": "white" \| "black" \| "random", "humanName"?, "agentName"?, "abandon"? }` | `409` if a game is in progress unless `"abandon": true`                                         |
-| POST   | `/api/game/takeback`                  |                                                                    | Human only: undoes the human's last move (and the agent's reply)                                |
-| GET    | `/api/game/pgn`                       | `?download`                                                        | PGN of the current game                                                                         |
-| GET    | `/api/game/board.png` / `board.svg`   | `?orientation=white\|black&size=480&ply=<n>`                       | Board image; `ply` renders an earlier position                                                  |
-| GET    | `/api/games`                          |                                                                    | All saved games (summaries)                                                                     |
-| GET    | `/api/games/<id>/pgn`                 | `?download`                                                        | PGN of any saved game                                                                           |
-| POST   | `/mcp`                                | MCP JSON-RPC                                                       | MCP server (Streamable HTTP, stateless). `GET`/`DELETE` return 405                              |
-| GET    | `/api/events`                         | `?client=agent&name=<name>`                                        | Server-Sent Events: `state` event with the full `GameView` on connect and after every change    |
-
-Agents that hold `/api/events?client=agent` open show up as "connected" in the UI.
+| Method | Path                                | Body / query                                                         | Notes |
+| ------ | ----------------------------------- | -------------------------------------------------------------------- | ----- |
+| POST   | `/api/rooms`                        | `{ "join"?: { "color"?: "white" \| "black" \| "any", "name"?, "kind"?: "human" \| "agent" } }` | Creates a room; with `join` also takes a seat (`JoinResult`) |
+| GET    | `/api/rooms/<code>`                 |                                                                      | `GameView` of the room's current game |
+| GET    | `/api/rooms/<code>/events`          | `?as=<playerId>`                                                     | Server-Sent Events: `state` with the full `GameView` on connect and after every change. Seated players pass `as` so they show as present; others count as spectators |
+| POST   | `/api/rooms/<code>/join`            | `{ "color"?: "white" \| "black" \| "any", "name"?, "kind"? }`        | Takes a seat: `{ key, playerId, color, game }`. `"any"` (default) only takes a free seat (`409` if both are taken); a named colour takes over an occupied seat, whose previous holder loses it. In a finished game it starts the next game |
+| POST   | `/api/rooms/<code>/move`            | `{ "seat", "move": "e4" \| "e2e4" \| "e8=Q", "message"? }`           | `409` if not your turn or a seat is still empty, `422` if illegal (lists the legal moves) or ambiguous (lists the candidates) |
+| POST   | `/api/rooms/<code>/draw`            | `{ "seat", "action": "offer" \| "accept" \| "decline" }`             | An offer stays open until the opponent accepts/declines or makes a move |
+| POST   | `/api/rooms/<code>/resign`          | `{ "seat" }`                                                         | |
+| POST   | `/api/rooms/<code>/message`         | `{ "seat", "text" }`                                                 | Room chat |
+| POST   | `/api/rooms/<code>/takeback`        | `{ "seat" }`                                                         | Undoes your last move (and the reply). Only against an agent |
+| POST   | `/api/rooms/<code>/rematch`         | `{ "seat", "swap"?: true, "abandon"? }`                              | New game in the room with the same players. `409` while a game is in progress unless `"abandon": true` |
+| POST   | `/api/rooms/<code>/leave`           | `{ "seat" }`                                                         | Frees your seat; only before the first move |
+| POST   | `/api/rooms/<code>/whoami`          | `{ "seat" }`                                                         | `{ playerId, name, kind, colors }` for a seat key |
+| GET    | `/api/rooms/<code>/games`           |                                                                      | Every game played in the room |
+| GET    | `/api/rooms/<code>/pgn`             | `?game=<id>&download`                                                | PGN of the current (or given) game |
+| GET    | `/api/rooms/<code>/board.png` / `board.svg` | `?orientation=white\|black&size=480&ply=<n>`                 | Board image; `ply` renders an earlier position |
+| GET    | `/api/seat/<key>/next`              | `?timeout=<seconds>` (default 8h, max 24h)                           | Background waiter, plain text |
+| GET    | `/api/seat/<key>/wait`              | `?timeout=<seconds>` (default 240, max 3600, `0` = check only)       | Long-poll, `SeatEvent` |
+| GET    | `/api/seat/<key>/state`             |                                                                      | `SeatEvent`; marks unread chat messages as read |
+| POST   | `/mcp`                              | MCP JSON-RPC                                                         | MCP server (Streamable HTTP, stateless). `GET`/`DELETE` return 405 |
 
 ## GameView
 
 ```ts
 {
-	id: string;               // e.g. "2026-10-17_211503_ab12"
+	room: string;             // "abc123"
+	id: string;               // game id, e.g. "2026-10-17_211503_ab12"
 	version: number;          // increases on every change
-	humanColor, agentColor: 'white' | 'black';
-	humanName, agentName, white, black: string;
+	seats: {
+		white: Seat | null;     // null while the seat is free
+		black: Seat | null;
+	};
+	spectators: number;
 	fen: string;
 	turn: 'white' | 'black';
-	turnSide: 'human' | 'agent';
 	ply: number;              // half-moves played
 	moveNumber: number;
 	moves: { ply, moveNumber, color, san, uci, from, to, fen }[];
 	lastMove: (same) | null;
 	inCheck: boolean;
 	legalMoves: { san, uci, from, to, promotion? }[];   // empty when the game is over
-	status: 'active' | 'finished';
+	status: 'waiting' | 'active' | 'finished';          // waiting until both seats are taken
 	result: '1-0' | '0-1' | '1/2-1/2' | '*';
 	termination: string | null;   // e.g. "Claude won by checkmate", "Draw by threefold repetition"
-	drawOffer: 'human' | 'agent' | null;
-	messages: { id, from: 'human' | 'agent' | 'system', text, ply, at }[];
+	drawOffer: 'white' | 'black' | null;
+	messages: { id, from: 'white' | 'black' | null, name: string | null, text, ply, at }[];  // from null = system
 	pgn: string;
 	ascii: string;             // board as text, White at the bottom
 	material: { white: number; black: number };
-	agent: { connected: boolean; waiting: boolean; name: string | null; lastSeen: string | null; turnNoticed: boolean };
+}
+
+Seat = {
+	playerId: number;
+	name: string;
+	kind: 'human' | 'agent';
+	connected: boolean;        // has an event stream open
+	waiting: boolean;          // has a waiter running
+	lastSeen: string | null;
+	turnNoticed: boolean;      // on its turn: has seen that it is its turn
+	readMessageId: number;     // highest chat message it has been shown
+	relayedBy: number | null;  // agent player allowed to enter moves for this seat
 }
 ```
